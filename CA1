@@ -1,0 +1,58 @@
+# Set the working directory 
+getwd()
+dir.create('CA1')
+setwd("~/Downloads/MBT-R/1/CA1")
+
+# Install bioconductor
+
+if (!requireNamespace("BiocManager"))
+  install.packages("BiocManager")
+BiocManager::install(c("GEOquery","oligo","limma",'tidyverse','hgu133plus2.db',"dplyr",""))
+
+# Get
+library(GEOquery)
+gsm <- getGEO('GSE50737')
+library(oligo)
+gse50737 <- gsm[[1]]
+
+# Getting the raw data of GSE50737 
+# filePaths <- getGEOSuppFiles('GSE50737')
+# In the interest time, files was downloaded from 
+# https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE50737
+# Then unzipped file was added to the working directory
+
+gse50737_celdata <- read.celfiles(list.celfiles('GSE50737_RAW',full.names=TRUE,listGzipped=TRUE))
+
+# Find the variables in interest
+# [37] "tissue:ch1"/ "treatment:ch1" /"geo_accession"
+library(tidyverse)
+varLabels(gse50737)
+gse50737$supplementary_file
+pd <- pData(gse50737)
+pd['cel_file'] <- str_split(pd$supplementary_file,"/") %>% map_chr(tail,1)
+
+gse50737_celdata <- read.celfiles(paste0('GSE50737_RAW/',pd$cel_file),phenoData=phenoData(gse50737))
+
+pData(gse50737_celdata)[,c("geo_accession","tissue:ch1","treatment:ch1")]
+
+#Performing RMA in R
+gse50737_eset <- rma(gse50737_celdata)
+
+#rma
+gse50737 <-rma(gse50737_celdata)
+pData(gse50737)<- pData(gse50737_geo[[1]])
+
+#using contrast
+design <- model.matrix (~ 0+ gse50737_eset[['treatment:ch1']])
+colnames(design) <-levels(as.factor(gse50737_eset[['treatment:ch1']]))
+colnames(design) <-c('be','bp','con')
+library(limma)
+contrasts_matrix <- makeContrasts (poisoning_in_control= bp- con,
+                                   exposed_control = be- con,
+                                   interaction_expose_poisoning= bp-be,
+                                   levels=design)
+
+gse50737_fit <- lmFit(gse50737_eset,design)
+gse50737_fit2 <- contrasts.fit(gse50737_fit,contrasts=contrasts_matrix)
+gse50737_fit2 <- eBayes(gse50737_fit2)
+summary(decideTests(gse50737_fit2,lfc=1))
